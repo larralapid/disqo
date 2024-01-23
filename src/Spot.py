@@ -24,7 +24,7 @@ class Spot:
         user_id = self.user_id
         self.username = config.username
         username = self.username
-        self.redirectURI = config.redirectURI
+        self.redirectURI = os.getenv('redirectURI')
         redirectURI = self.redirectURI
             
         scopes = [
