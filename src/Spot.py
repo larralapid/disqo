@@ -8,67 +8,105 @@ import random
 import string
 
 class Spot:
+    SCOPES = [
+    'playlist-read-private',
+    'playlist-read-collaborative',
+    'playlist-modify-private',
+    'playlist-modify-public',
+    'user-follow-modify',
+    'user-follow-read',
+    'user-read-playback-position',
+    'user-top-read',
+    'user-read-recently-played',
+    'user-library-modify',
+    'user-library-read',
+]
     def __init__(self):
         self.inBetaID = config.beta_id
-        inBetaID = self.inBetaID
         self.pq_id = config.pq_id
-        pq_id = self.pq_id
         self.clientID = os.getenv('clientID')
-        clientID = self.clientID
         self.clientSecret = os.getenv('clientSecret')  
-        clientSecret = self.clientSecret
         self.user_id = config.user_id
-        user_id = self.user_id
         self.username = config.username
-        username = self.username
         self.redirectURI = os.getenv('redirectURI')
-        redirectURI = self.redirectURI
-            
-        scopes = [
-            'playlist-read-private',
-            'playlist-read-collaborative',
-            'playlist-modify-private',
-            'playlist-modify-public',
-            'user-follow-modify',
-            'user-follow-read',
-            'user-read-playback-position',
-            'user-top-read',
-            'user-read-recently-played',
-            'user-library-modify',
-            'user-library-read',
-        ]
 
-        scope = ' '.join(scopes)
+        scope = ' '.join(self.SCOPES)
         token = util.prompt_for_user_token(
-            username= username,
+            username=self.username,
             scope=scope,
-            client_id=clientID,
-            client_secret=clientSecret,
-            redirect_uri=redirectURI
+            client_id=self.clientID,
+            client_secret=self.clientSecret,
+            redirect_uri=self.redirectURI
         )
 
         # create a Spotify object
-        sp = spotipy.Spotify(auth=token)   
-        self.sp = sp
+        self.sp = spotipy.Spotify(auth=token)
 
 
-    def get_liked_songs(self):  # Add `self` as the first parameter
-        liked_songs_ids = []
-        liked_songs = self.sp.current_user_saved_tracks()  # Use `self.sp` directly
+import spotipy
+import spotipy.util as util
+from spotipy.oauth2 import SpotifyClientCredentials
+import os
+import config
+import random
 
-        while liked_songs['next']:
-            liked_songs = self.sp.current_user_saved_tracks(offset=len(liked_songs_ids))  # Use `self.sp`
-            for item in liked_songs['items']:
-                if (str(item) == "None" or str(item) == "" or item == None):
+class Spot:
+    SCOPES = [
+        'playlist-read-private', 'playlist-read-collaborative',
+        'playlist-modify-private', 'playlist-modify-public',
+        'user-follow-modify', 'user-follow-read',
+        'user-read-playback-position', 'user-top-read',
+        'user-read-recently-played', 'user-library-modify', 'user-library-read',
+    ]
+
+    def __init__(self):
+        self.inBetaID = config.beta_id
+        self.pq_id = config.pq_id
+        self.clientID = os.getenv('clientID')
+        self.clientSecret = os.getenv('clientSecret')
+        self.user_id = config.user_id
+        self.username = config.username
+        self.redirectURI = os.getenv('redirectURI')
+
+        scope = ' '.join(self.SCOPES)
+        token = util.prompt_for_user_token(
+            username=self.username,
+            scope=scope,
+            client_id=self.clientID,
+            client_secret=self.clientSecret,
+            redirect_uri=self.redirectURI
+        )
+
+        # create a Spotify object
+        self.sp = spotipy.Spotify(auth=token)
+
+    def get_playlist_items(self, playlist_id):
+        if playlist_id == 'me':  # Corrected condition to check if playlist_id is 'me'
+            # Fetch liked songs using the specific method for this case
+            liked_songs = self.sp.current_user_saved_tracks()
+            return [track['track']['id'] for track in liked_songs['items'] if track is not None and track != ""]
+
+        items = []
+        playlist = self.sp.playlist_items(playlist_id)
+
+        while playlist['next']:
+            playlist = self.sp.playlist_items(playlist_id, offset=len(items))
+            for item in playlist['items']:
+                if str(item) == "None" or str(item) == "" or item is None:
                     continue
                 else:
                     track = item['track']
-                    liked_songs_ids.append(track['id'])
+                    items.append(track['id'])
+        return items
 
-            self.liked_count = len(liked_songs_ids)
-        print(f"Pre-process Liked Songs: {self.liked_count}")  # Use f-string for formatting
+    def get_liked_songs(self):
+        # Use 'me' as the argument for liked songs
+        liked_songs_ids = self.get_playlist_items('me')
+        self.liked_count = len(liked_songs_ids)
+        print(f"Pre-process Liked Songs: {self.liked_count}")
         self.liked_songs_ids = liked_songs_ids
 
+# TODO: REFACTOR REST OF THIS FILE'S METHODS FROM HERE ON OUT
     def get_in_beta(self):
         in_beta_ids = []
         # get tracks for beta songs 
