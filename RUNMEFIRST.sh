@@ -51,4 +51,4 @@ else
 fi
 
 
-# and then ask them for their client id and client secret
+#TODO: #1 ask for user_id, username to populate config.py
