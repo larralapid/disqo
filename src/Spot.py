@@ -1,14 +1,11 @@
 import spotipy
-import os
-import config
 import spotipy.util as util
 from spotipy.oauth2 import SpotifyClientCredentials
 import spotipy.oauth2 as oauth2
+import os
+import config
 import random
 import string
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class Spot:
     def __init__(self):
@@ -24,7 +21,7 @@ class Spot:
         user_id = self.user_id
         self.username = config.username
         username = self.username
-        self.redirectURI = config.redirectURI
+        self.redirectURI = os.getenv('redirectURI')
         redirectURI = self.redirectURI
             
         scopes = [
