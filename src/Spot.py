@@ -1,51 +1,6 @@
 import spotipy
 import spotipy.util as util
 from spotipy.oauth2 import SpotifyClientCredentials
-import spotipy.oauth2 as oauth2
-import os
-import config
-import random
-import string
-
-class Spot:
-    SCOPES = [
-    'playlist-read-private',
-    'playlist-read-collaborative',
-    'playlist-modify-private',
-    'playlist-modify-public',
-    'user-follow-modify',
-    'user-follow-read',
-    'user-read-playback-position',
-    'user-top-read',
-    'user-read-recently-played',
-    'user-library-modify',
-    'user-library-read',
-]
-    def __init__(self):
-        self.inBetaID = config.beta_id
-        self.pq_id = config.pq_id
-        self.clientID = os.getenv('clientID')
-        self.clientSecret = os.getenv('clientSecret')  
-        self.user_id = config.user_id
-        self.username = config.username
-        self.redirectURI = os.getenv('redirectURI')
-
-        scope = ' '.join(self.SCOPES)
-        token = util.prompt_for_user_token(
-            username=self.username,
-            scope=scope,
-            client_id=self.clientID,
-            client_secret=self.clientSecret,
-            redirect_uri=self.redirectURI
-        )
-
-        # create a Spotify object
-        self.sp = spotipy.Spotify(auth=token)
-
-
-import spotipy
-import spotipy.util as util
-from spotipy.oauth2 import SpotifyClientCredentials
 import os
 import config
 import random
