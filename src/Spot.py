@@ -1,51 +1,6 @@
 import spotipy
 import spotipy.util as util
 from spotipy.oauth2 import SpotifyClientCredentials
-import spotipy.oauth2 as oauth2
-import os
-import config
-import random
-import string
-
-class Spot:
-    SCOPES = [
-    'playlist-read-private',
-    'playlist-read-collaborative',
-    'playlist-modify-private',
-    'playlist-modify-public',
-    'user-follow-modify',
-    'user-follow-read',
-    'user-read-playback-position',
-    'user-top-read',
-    'user-read-recently-played',
-    'user-library-modify',
-    'user-library-read',
-]
-    def __init__(self):
-        self.inBetaID = config.beta_id
-        self.pq_id = config.pq_id
-        self.clientID = os.getenv('clientID')
-        self.clientSecret = os.getenv('clientSecret')  
-        self.user_id = config.user_id
-        self.username = config.username
-        self.redirectURI = os.getenv('redirectURI')
-
-        scope = ' '.join(self.SCOPES)
-        token = util.prompt_for_user_token(
-            username=self.username,
-            scope=scope,
-            client_id=self.clientID,
-            client_secret=self.clientSecret,
-            redirect_uri=self.redirectURI
-        )
-
-        # create a Spotify object
-        self.sp = spotipy.Spotify(auth=token)
-
-
-import spotipy
-import spotipy.util as util
-from spotipy.oauth2 import SpotifyClientCredentials
 import os
 import config
 import random
@@ -80,11 +35,33 @@ class Spot:
         # create a Spotify object
         self.sp = spotipy.Spotify(auth=token)
 
+    def get_all_saved_tracks(self):
+        offset = 0
+        limit = 50
+        saved_tracks = []
+
+        while True:
+            results = self.sp.current_user_saved_tracks(limit=limit, offset=offset)
+            if results['items']:
+                for item in results['items']:
+                    saved_tracks.append(item['track']['id'])
+                offset += limit
+            else:
+                break
+
+        return saved_tracks
+
+    def get_liked_songs(self):
+        # this gets all liked songs 
+        # Use 'me' as the argument for liked songs
+        liked_songs_ids = self.get_all_saved_tracks()
+        self.liked_count = len(liked_songs_ids)
+        print(f"Pre-process Liked Songs: {self.liked_count}")
+        self.liked_songs_ids = liked_songs_ids
+        
+        return liked_songs_ids
+
     def get_playlist_items(self, playlist_id):
-        if playlist_id == 'me':  # Corrected condition to check if playlist_id is 'me'
-            # Fetch liked songs using the specific method for this case
-            liked_songs = self.sp.current_user_saved_tracks()
-            return [track['track']['id'] for track in liked_songs['items'] if track is not None and track != ""]
 
         items = []
         playlist = self.sp.playlist_items(playlist_id)
@@ -99,23 +76,22 @@ class Spot:
                     items.append(track['id'])
         return items
 
-    def get_liked_songs(self):
-        # Use 'me' as the argument for liked songs
-        liked_songs_ids = self.get_playlist_items('me')
-        self.liked_count = len(liked_songs_ids)
-        print(f"Pre-process Liked Songs: {self.liked_count}")
-        self.liked_songs_ids = liked_songs_ids
+    def delete_tracks(self, playlist_id, tracks):
+        while tracks:
+            self.sp.playlist_remove_all_occurrences_of_items(playlist_id=playlist_id, items=tracks[:100])
+            tracks = tracks[100:]
 
-# TODO: REFACTOR REST OF THIS FILE'S METHODS FROM HERE ON OUT
+
+# TODO: REFACTOR REST OF THIS FILE'S METHODS FROM #3
     def get_in_beta(self):
         in_beta_ids = []
         # get tracks for beta songs 
-        in_beta = self.sp.playlist_items(self.inBetaID)
+        in_beta = self.get_playlist_items(self.inBetaID)
         
         #keep getting in beta songs until we have all of them and update the offset parameter
         while in_beta['next']:
             #TODO: check if the item is still valid in spotify
-            in_beta = self.sp.playlist_items(self.inBetaID, offset=len(in_beta_ids))
+            
             removed_from_beta = 0
             for item in in_beta['items']:
                 if str(item) == "None" or str(item) == "" or item == None:
@@ -182,7 +158,7 @@ class Spot:
             items_to_remove = items_to_remove[100:]
 
         
-
+# TODO: refactor this method from #3
     def delete_betaDupe_q(self):
         betaDupe_q = self.betaDupe_q
         items_to_remove = betaDupe_q.copy()
@@ -232,7 +208,7 @@ class Spot:
 
     def delete_qDupesFromBeta(self):
         print("collecting in beta songs")
-        self.get_in_beta()
+        self.get_in_beta() #TODO: i don't think this is necessary, instead just use self.in_beta_ids
         print("collecting queued songs")
         self.get_queued()
         print("deleting queued songs from beta playlist")
@@ -248,3 +224,9 @@ class Spot:
         self.exe_deletes()
         self.create_queue()
         print("Done")
+
+    def new_playlist(self, name):
+        playlist = self.sp.user_playlist_create(self.user_id, name)
+        return playlist['id']
+
+    #todo: create a sweep class that will handle the entire process of cleaning up the playlists
