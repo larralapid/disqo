@@ -1,205 +1,251 @@
-import spotipy
-import spotipy.util as util
-from spotipy.oauth2 import SpotifyClientCredentials
 import os
-import config
 import random
+from dataclasses import dataclass
+from typing import Iterable, List, Sequence
+
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+
+import config
+
+
+@dataclass(frozen=True)
+class BatchSpec:
+    size: int
+    pattern: str
+    label: str = ""
+
 
 class Spot:
     SCOPES = [
-        'playlist-read-private', 'playlist-read-collaborative',
-        'playlist-modify-private', 'playlist-modify-public',
-        'user-follow-modify', 'user-follow-read',
-        'user-read-playback-position', 'user-top-read',
-        'user-read-recently-played', 'user-library-modify', 'user-library-read',
+        "playlist-read-private",
+        "playlist-read-collaborative",
+        "playlist-modify-private",
+        "playlist-modify-public",
+        "user-library-read",
     ]
 
     def __init__(self):
-        self.inBetaID = config.beta_id
-        self.pq_id = config.pq_id
-        self.clientID = os.getenv('clientID')
-        self.clientSecret = os.getenv('clientSecret')
+        self.in_beta_id = config.beta_id
+        self.liked_bucket_id = config.liked_bucket_id
         self.user_id = config.user_id
-        self.username = config.username
-        self.redirectURI = os.getenv('redirectURI')
 
-        scope = ' '.join(self.SCOPES)
-        token = util.prompt_for_user_token(
-            username=self.username,
-            scope=scope,
-            client_id=self.clientID,
-            client_secret=self.clientSecret,
-            redirect_uri=self.redirectURI
+        scope = " ".join(self.SCOPES)
+        self.sp = spotipy.Spotify(
+            auth_manager=SpotifyOAuth(
+                client_id=os.getenv("SPOTIPY_CLIENT_ID") or os.getenv("clientID"),
+                client_secret=os.getenv("SPOTIPY_CLIENT_SECRET") or os.getenv("clientSecret"),
+                redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI") or os.getenv("redirectURI"),
+                scope=scope,
+                cache_path=os.getenv("SPOTIPY_CACHE_PATH", ".cache-disqo"),
+                open_browser=True,
+            )
         )
 
-        # create a Spotify object
-        self.sp = spotipy.Spotify(auth=token)
+    # ---------- Spotify reads ----------
 
-    def get_playlist_items(self, playlist_id):
-        if playlist_id == 'me':  # Corrected condition to check if playlist_id is 'me'
-            # Fetch liked songs using the specific method for this case
-            liked_songs = self.sp.current_user_saved_tracks()
-            return [track['track']['id'] for track in liked_songs['items'] if track is not None and track != ""]
+    def get_playlist_tracks(self, playlist_id: str) -> List[dict]:
+        """Return all valid track objects from a playlist, preserving playlist order."""
+        tracks = []
+        offset = 0
 
-        items = []
-        playlist = self.sp.playlist_items(playlist_id)
+        while True:
+            page = self.sp.playlist_items(
+                playlist_id,
+                offset=offset,
+                limit=100,
+                additional_types=("track",),
+            )
+            for item in page.get("items", []):
+                track = item.get("track") if item else None
+                if track and track.get("id") and track.get("uri"):
+                    tracks.append(track)
 
-        while playlist['next']:
-            playlist = self.sp.playlist_items(playlist_id, offset=len(items))
-            for item in playlist['items']:
-                if str(item) == "None" or str(item) == "" or item is None:
-                    continue
-                else:
-                    track = item['track']
-                    items.append(track['id'])
-        return items
+            if not page.get("next"):
+                break
+            offset += len(page.get("items", []))
 
-    def get_liked_songs(self):
-        # Use 'me' as the argument for liked songs
-        liked_songs_ids = self.get_playlist_items('me')
-        self.liked_count = len(liked_songs_ids)
-        print(f"Pre-process Liked Songs: {self.liked_count}")
-        self.liked_songs_ids = liked_songs_ids
+        return tracks
 
-# TODO: REFACTOR REST OF THIS FILE'S METHODS FROM HERE ON OUT
-    def get_in_beta(self):
-        in_beta_ids = []
-        # get tracks for beta songs 
-        in_beta = self.sp.playlist_items(self.inBetaID)
-        
-        #keep getting in beta songs until we have all of them and update the offset parameter
-        while in_beta['next']:
-            #TODO: check if the item is still valid in spotify
-            in_beta = self.sp.playlist_items(self.inBetaID, offset=len(in_beta_ids))
-            removed_from_beta = 0
-            for item in in_beta['items']:
-                if str(item) == "None" or str(item) == "" or item == None:
-                    # remove the track from the in_beta playlist
-                    self.sp.playlist_remove_all_occurrences_of_items(playlist_id=self.inBetaID, items=[item])
-                    print("Removed None or empty string from In Beta")
-                    removed_from_beta += 1
-                else:
-                    track = item['track']
-                    in_beta_ids.append(track['id'])
-        self.in_beta_count = len(in_beta_ids)
-        self.in_beta_ids = in_beta_ids
-        print(f"In Beta: {self.in_beta_count}") 
-        
-    def get_queued(self):
-        q_ids = []
+    def get_saved_tracks(self) -> List[dict]:
+        """Return all songs in Spotify Liked Songs."""
+        tracks = []
+        offset = 0
 
-        # get tracks that exist in the queued playlist 
-        q = self.sp.playlist_items(self.pq_id, offset=len(q_ids))
+        while True:
+            page = self.sp.current_user_saved_tracks(limit=50, offset=offset)
+            for item in page.get("items", []):
+                track = item.get("track") if item else None
+                if track and track.get("id") and track.get("uri"):
+                    tracks.append(track)
 
-        while q['next']:
-            q = self.sp.playlist_items(self.pq_id, offset=len(q_ids))
-            for item in q['items']:
-                track = item['track']
-                q_ids.append(track['id'])
-        
-        self.q_count = len(q_ids)
-        self.q_ids = q_ids
+            if not page.get("next"):
+                break
+            offset += len(page.get("items", []))
 
-    def get_beta_dupe_liked(self):
-        # find saved/liked songs in the beta playlist 
-        liked_song_ids = self.liked_songs_ids
-        in_beta_ids = self.in_beta_ids
-        
-        betaDupe_liked = []
-        for track_id in in_beta_ids:
-            if track_id in liked_song_ids:
-                betaDupe_liked.append(track_id)
-        self.betaDupe_liked = betaDupe_liked
-        print(f"Found {len(betaDupe_liked)} liked songs in beta playlist")
+        return tracks
 
-    def get_beta_dupe_q(self):
-        # find beta songs in queued playlsit 
-        q_ids = self.q_ids
-        in_beta_ids = self.in_beta_ids
+    # ---------- Source-pool management ----------
 
-        betaDupe_q = []
-        for track_id in in_beta_ids:
-            if track_id in q_ids:
-                betaDupe_q.append(track_id)
-        print(f"Found {len(betaDupe_q)} beta songs in queued playlist")
-        self.betaDupe_q = betaDupe_q
+    def refill_liked_bucket(self, only_if_empty: bool = True) -> int:
+        """Copy all Liked Songs into Liked Bucket.
 
-    #  delete tracks returned from get_beta_dupe_liked from beta playlist 
-    def delete_betaDupe_likes(self):
-        betaDupe_liked = self.betaDupe_liked
-        items_to_remove = betaDupe_liked.copy()
-        removed_items = []
-        print(f"Deleting {len(betaDupe_liked)} liked songs from beta playlist")
-        betaDupeCount_liked = 0
-        while items_to_remove:
-            removed = self.sp.playlist_remove_all_occurrences_of_items(playlist_id=self.inBetaID, items=items_to_remove[:100])
-            removed_items.extend(removed['snapshot_id'])
-            items_to_remove = items_to_remove[100:]
+        This intentionally copies from Spotify's saved-track library only when the
+        consumable bucket has reached zero, matching the manual reset step.
+        """
+        current = self.get_playlist_tracks(self.liked_bucket_id)
+        if only_if_empty and current:
+            return 0
 
-        
+        liked = self.get_saved_tracks()
+        uris = [track["uri"] for track in liked]
+        self._add_items(self.liked_bucket_id, uris)
+        return len(uris)
 
-    def delete_betaDupe_q(self):
-        betaDupe_q = self.betaDupe_q
-        items_to_remove = betaDupe_q.copy()
-        print(f"Deleting {len(betaDupe_q)} queued songs from beta playlist")
-        betaDupeCount_q = 0
-        removed_items = []
-        while items_to_remove:
-            removed = self.sp.playlist_remove_all_occurrences_of_items(playlist_id=self.inBetaID, items=items_to_remove[:100])
-            removed_items.extend(removed['snapshot_id'])
-            items_to_remove = items_to_remove[100:]
+    @staticmethod
+    def _unique_by_id(tracks: Iterable[dict]) -> List[dict]:
+        seen = set()
+        result = []
+        for track in tracks:
+            track_id = track["id"]
+            if track_id not in seen:
+                seen.add(track_id)
+                result.append(track)
+        return result
 
-    def exe_deletes(self):
-        self.delete_betaDupe_likes()
-        print("betadupe likes deleted")
-        print("delete betaDupe q")
-        self.delete_betaDupe_q()
-        print("betadupe q deleted")
-        self.get_in_beta()
+    # ---------- Pattern generation ----------
 
-    def create_queue(self):
-        random.shuffle(self.liked_songs_ids)
-        self.q_liked_songs = self.liked_songs_ids
-        self.q_beta_songs =  random.sample(self.in_beta_ids, len(self.liked_songs_ids)) # for the count of liked_songs, get the same number of items from in_beta_ids after shuffling
+    @staticmethod
+    def _expand_pattern(pattern: str, size: int) -> List[str]:
+        """Expand a B/L pattern to exactly size slots.
 
-        
-        new_q = [] #queue playlist subset 
+        B = In Beta, L = Liked Bucket.
 
-        print(f"generating new queue")
+        Special pattern: RANDOM50 creates a balanced random sequence with no run
+        longer than two when possible.
+        """
+        normalized = pattern.upper().replace(" ", "")
+        if normalized == "RANDOM50":
+            beta_count = (size + 1) // 2
+            liked_count = size - beta_count
+            slots = ["B"] * beta_count + ["L"] * liked_count
 
-        beta_removals = self.q_beta_songs.copy() # songs to remove from beta playlist after adding to queue
-        for item in self.q_liked_songs[:]:
-            new_q.append("spotify:track:" + item)
-            new_q.append("spotify:track:" + self.q_beta_songs.pop())
-        print(f"new subset for queue has {len(new_q)} songs")
-        
-        print(f"Adding {len(new_q)} songs to queue")
-        for item in new_q:
-            self.sp.playlist_add_items(playlist_id=self.pq_id, items=[item])
+            for _ in range(1000):
+                random.shuffle(slots)
+                if all(
+                    not (slots[i] == slots[i + 1] == slots[i + 2])
+                    for i in range(max(0, len(slots) - 2))
+                ):
+                    return slots
+            return slots
 
-        print("queue updated")
+        if not normalized or any(ch not in {"B", "L"} for ch in normalized):
+            raise ValueError(f"Invalid pattern: {pattern!r}. Use B/L characters or RANDOM50.")
 
-        # delete the beta songs that were added to the queue from the beta playlist
-        print(f"Deleting {len(beta_removals)} songs from beta playlist")
-        for item in beta_removals:
-            self.sp.playlist_remove_all_occurrences_of_items(playlist_id=self.inBetaID, items=[item])
-        print("beta playlist updated. New total:" + {self.sp.playlist_items(self.inBetaID)['total']})
+        return [normalized[i % len(normalized)] for i in range(size)]
 
-    def delete_qDupesFromBeta(self):
-        print("collecting in beta songs")
-        self.get_in_beta()
-        print("collecting queued songs")
-        self.get_queued()
-        print("deleting queued songs from beta playlist")
-        self.delete_betaDupe_q()
+    @staticmethod
+    def _interleave_selected(slots: Sequence[str], beta: List[dict], liked: List[dict]) -> List[dict]:
+        beta_iter = iter(beta)
+        liked_iter = iter(liked)
+        return [next(beta_iter) if slot == "B" else next(liked_iter) for slot in slots]
 
-        
-    def exe(self):
-        self.get_liked_songs()
-        self.get_in_beta()
-        self.get_queued()
-        self.get_beta_dupe_liked()
-        self.get_beta_dupe_q()
-        self.exe_deletes()
-        self.create_queue()
-        print("Done")
+    # ---------- Playlist writes ----------
+
+    def _add_items(self, playlist_id: str, uris: Sequence[str]) -> None:
+        for i in range(0, len(uris), 100):
+            self.sp.playlist_add_items(playlist_id, list(uris[i : i + 100]))
+
+    def _remove_track_ids(self, playlist_id: str, track_ids: Sequence[str]) -> None:
+        """Remove consumed tracks from a source playlist in API-sized chunks."""
+        for i in range(0, len(track_ids), 100):
+            self.sp.playlist_remove_all_occurrences_of_items(
+                playlist_id,
+                list(track_ids[i : i + 100]),
+            )
+
+    @staticmethod
+    def _duration_title(tracks: Sequence[dict], prefix: str = "🤖") -> str:
+        total_ms = sum(track.get("duration_ms", 0) or 0 for track in tracks)
+        hours = total_ms / 3_600_000
+        rough_hours = max(1, int(hours + 0.5))
+        return f"{prefix}{len(tracks)}t{rough_hours}h"
+
+    def create_ready_batch(self, spec: BatchSpec, title_prefix: str = "🤖") -> dict:
+        beta_pool = self._unique_by_id(self.get_playlist_tracks(self.in_beta_id))
+        liked_pool = self._unique_by_id(self.get_playlist_tracks(self.liked_bucket_id))
+
+        slots = self._expand_pattern(spec.pattern, spec.size)
+        beta_needed = slots.count("B")
+        liked_needed = slots.count("L")
+
+        if len(beta_pool) < beta_needed:
+            raise RuntimeError(
+                f"In Beta has {len(beta_pool)} unique tracks but this batch needs {beta_needed}."
+            )
+        if len(liked_pool) < liked_needed:
+            raise RuntimeError(
+                f"Liked Bucket has {len(liked_pool)} unique tracks but this batch needs {liked_needed}. "
+                "Refill it from Liked Songs, then rerun."
+            )
+
+        # Sample without replacement from both consumable pools.
+        selected_beta = random.sample(beta_pool, beta_needed)
+        selected_liked = random.sample(liked_pool, liked_needed)
+        ordered = self._interleave_selected(slots, selected_beta, selected_liked)
+
+        title = self._duration_title(ordered, prefix=title_prefix)
+        description = (
+            f"disqo ready batch | pattern={spec.pattern} | "
+            f"beta={beta_needed} | liked={liked_needed}"
+        )
+        if spec.label:
+            description += f" | {spec.label}"
+
+        created = self.sp.user_playlist_create(
+            user=self.user_id,
+            name=title,
+            public=False,
+            description=description,
+        )
+        playlist_id = created["id"]
+
+        # Destination is populated before either source is mutated. If creation/add
+        # fails, no tracks have been consumed from the source buckets.
+        self._add_items(playlist_id, [track["uri"] for track in ordered])
+
+        # Move semantics: after successful destination creation, consume from BOTH.
+        self._remove_track_ids(self.in_beta_id, [track["id"] for track in selected_beta])
+        self._remove_track_ids(self.liked_bucket_id, [track["id"] for track in selected_liked])
+
+        return {
+            "id": playlist_id,
+            "url": created.get("external_urls", {}).get("spotify"),
+            "name": title,
+            "size": len(ordered),
+            "pattern": spec.pattern,
+            "beta": beta_needed,
+            "liked": liked_needed,
+            "duration_ms": sum(track.get("duration_ms", 0) or 0 for track in ordered),
+        }
+
+    def create_ready_playlists(
+        self,
+        specs: Sequence[BatchSpec],
+        title_prefix: str = "🤖",
+    ) -> List[dict]:
+        """Create multiple disposable Ready playlists sequentially.
+
+        Each batch rereads In Beta and Liked Bucket after the prior batch consumes
+        its tracks, which prevents any track from being selected twice in the run.
+        """
+        results = []
+        for index, spec in enumerate(specs, start=1):
+            print(f"Creating batch {index}/{len(specs)}: size={spec.size}, pattern={spec.pattern}")
+            result = self.create_ready_batch(spec, title_prefix=title_prefix)
+            results.append(result)
+            print(
+                f"  {result['name']}: {result['beta']} beta + "
+                f"{result['liked']} liked -> {result['url']}"
+            )
+        return results
