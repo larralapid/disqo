@@ -122,21 +122,35 @@ class Spot:
         B = In Beta, L = Liked Bucket.
 
         Special pattern: RANDOM50 creates a balanced random sequence with no run
-        longer than two when possible.
+        longer than two. Selection is weighted by the remaining B/L counts so the
+        result stays randomized while guaranteeing the requested 50/50-ish mix.
         """
         normalized = pattern.upper().replace(" ", "")
         if normalized == "RANDOM50":
-            beta_count = (size + 1) // 2
-            liked_count = size - beta_count
-            slots = ["B"] * beta_count + ["L"] * liked_count
+            remaining = {
+                "B": (size + 1) // 2,
+                "L": size // 2,
+            }
+            slots = []
 
-            for _ in range(1000):
-                random.shuffle(slots)
-                if all(
-                    not (slots[i] == slots[i + 1] == slots[i + 2])
-                    for i in range(max(0, len(slots) - 2))
-                ):
-                    return slots
+            while len(slots) < size:
+                candidates = []
+                weights = []
+                for source in ("B", "L"):
+                    if remaining[source] <= 0:
+                        continue
+                    if len(slots) >= 2 and slots[-1] == slots[-2] == source:
+                        continue
+                    candidates.append(source)
+                    weights.append(remaining[source])
+
+                if not candidates:
+                    raise RuntimeError("Unable to construct RANDOM50 pattern with max-two streak guardrail.")
+
+                source = random.choices(candidates, weights=weights, k=1)[0]
+                slots.append(source)
+                remaining[source] -= 1
+
             return slots
 
         if not normalized or any(ch not in {"B", "L"} for ch in normalized):
